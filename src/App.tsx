@@ -95,28 +95,43 @@ const storage = getStorage(app, firebaseConfig.storageBucket ? `gs://${firebaseC
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
+export const CLOUD_RUN_BACKEND_URL = "https://ais-pre-abmvi4h2lj2gnrmdmhteok-228268312920.us-west2.run.app";
+
 // Helper global para resolver a URL final do backend de API
 export const resolveApiUrl = (path: string, customBackendUrl?: string): string => {
-  let cleanCustom = customBackendUrl ? customBackendUrl.trim() : '';
+  let target = customBackendUrl ? customBackendUrl.trim() : '';
   
-  // Se estivermos rodando localmente ou dentro do mesmo domínio do backend configurado,
-  // usamos a rota relativa para evitar problemas de CORS desnecessários.
-  if (cleanCustom && typeof window !== 'undefined') {
+  if (typeof window !== 'undefined') {
     const currentOrigin = window.location.origin;
     const currentHost = window.location.hostname;
     
-    // Se a página já está no mesmo origin ou se ambos forem localhost / mesmo ambiente de container
-    if (
-      cleanCustom.startsWith(currentOrigin) ||
-      (currentHost.includes('run.app') && cleanCustom.includes('run.app')) ||
-      ((currentHost === 'localhost' || currentHost === '127.0.0.1') && (cleanCustom.includes('localhost') || cleanCustom.includes('127.0.0.1')))
-    ) {
-      cleanCustom = '';
+    // Verifica se estamos rodando diretamente no ambiente com Express ativo (Cloud Run ou dev local)
+    const isLocalOrContainer = 
+      currentHost.includes('run.app') || 
+      currentHost === 'localhost' || 
+      currentHost === '127.0.0.1';
+
+    if (isLocalOrContainer) {
+      // Se a página já está no mesmo origin ou container Cloud Run, a rota relativa é ideal e evita CORS
+      if (
+        !target ||
+        target.startsWith(currentOrigin) ||
+        target.includes('run.app') ||
+        target.includes('localhost')
+      ) {
+        target = '';
+      }
+    } else {
+      // Se estivermos rodando no Netlify, Vercel ou qualquer domínio externo estático:
+      // Se o usuário não configurou explicitamente uma URL de backend, direciona automaticamente para o servidor Express no Cloud Run
+      if (!target) {
+        target = CLOUD_RUN_BACKEND_URL;
+      }
     }
   }
 
-  if (cleanCustom !== '') {
-    const base = cleanCustom.replace(/\/$/, "");
+  if (target !== '') {
+    const base = target.replace(/\/$/, "");
     const cleanPath = path.startsWith("/") ? path : `/${path}`;
     return `${base}${cleanPath}`;
   }
@@ -3255,17 +3270,44 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
     setIsTestingConnection(true);
     setConnectionResult(null);
     try {
-      const response = await fetch(resolveApiUrl('/api/mdcpay/test-connection', pixSettings.backendApiUrl), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          mdcToken: pixSettings.mdcToken,
-          mdcUrl: pixSettings.mdcUrl,
-          mdcClientId: pixSettings.mdcClientId
-        })
-      });
+      const primaryUrl = resolveApiUrl('/api/mdcpay/test-connection', pixSettings.backendApiUrl);
+      const payload = {
+        mdcToken: pixSettings.mdcToken,
+        mdcUrl: pixSettings.mdcUrl,
+        mdcClientId: pixSettings.mdcClientId
+      };
+
+      let response: Response;
+      try {
+        response = await fetch(primaryUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        // Se retornar 404 (ex: servidor estático do Netlify sem rota Express local), faz fallback direto para o Cloud Run
+        if (response.status === 404 && !primaryUrl.includes('run.app')) {
+          console.warn('Endpoint relativo retornou 404 no host atual. Conectando via backend Cloud Run...');
+          response = await fetch(`${CLOUD_RUN_BACKEND_URL}/api/mdcpay/test-connection`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+      } catch (fetchErr: any) {
+        if (!primaryUrl.includes('run.app')) {
+          console.warn('Falha no endpoint primário, tentando servidor Cloud Run diretamente...');
+          response = await fetch(`${CLOUD_RUN_BACKEND_URL}/api/mdcpay/test-connection`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          throw fetchErr;
+        }
+      }
       
       const responseText = await response.text();
       let data: any = {};
@@ -3276,7 +3318,7 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
           throw new Error('O servidor retornou uma resposta vazia.');
         }
       } catch (jsonErr) {
-        throw new Error(`Resposta inválida do servidor (Código ${response.status}). Certifique-se de que o servidor Express está ativo e rodando.`);
+        throw new Error(`Resposta inválida do servidor (Código ${response.status}). Certifique-se de que o backend está ativo.`);
       }
 
       if (data.success) {
@@ -3293,7 +3335,7 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
     } catch (err: any) {
       setConnectionResult({
         success: false,
-        message: `Falha na requisição local: ${err.message}`
+        message: `Falha na requisição: ${err.message}`
       });
     } finally {
       setIsTestingConnection(false);
@@ -7240,25 +7282,48 @@ function CheckoutPaymentPage({
                 }
 
                 const endpoint = provider === 'mercadopago' ? '/api/create-pix' : '/api/mdcpay/create-payment';
-                
-                const response = await fetch(resolveApiUrl(endpoint, settings.backendApiUrl), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    amount: Number(activeTotal.toFixed(2)),
-                    email: email || 'cliente@wepink.com.br',
-                    firstName: firstName || 'Cliente',
-                    lastName: lastName || 'Wepink',
-                    cpf: (cpf || '').replace(/\D/g, '') || '52998224725',
-                    mpToken: settings.mpToken,
-                    mdcToken: settings.mdcToken,
-                    mdcUrl: settings.mdcUrl,
-                    mdcClientId: settings.mdcClientId,
-                    pixKey: effectivePixKey,
-                    merchantName: effectiveName,
-                    merchantCity: effectiveCity
-                  })
-                });
+                const primaryUrl = resolveApiUrl(endpoint, settings.backendApiUrl);
+                const reqPayload = {
+                  amount: Number(activeTotal.toFixed(2)),
+                  email: email || 'cliente@wepink.com.br',
+                  firstName: firstName || 'Cliente',
+                  lastName: lastName || 'Wepink',
+                  cpf: (cpf || '').replace(/\D/g, '') || '52998224725',
+                  mpToken: settings.mpToken,
+                  mdcToken: settings.mdcToken,
+                  mdcUrl: settings.mdcUrl,
+                  mdcClientId: settings.mdcClientId,
+                  pixKey: effectivePixKey,
+                  merchantName: effectiveName,
+                  merchantCity: effectiveCity
+                };
+
+                let response: Response;
+                try {
+                  response = await fetch(primaryUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reqPayload)
+                  });
+
+                  if ((!response.ok || response.status === 404) && !primaryUrl.includes('run.app')) {
+                    response = await fetch(`${CLOUD_RUN_BACKEND_URL}${endpoint}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(reqPayload)
+                    });
+                  }
+                } catch (fetchErr) {
+                  if (!primaryUrl.includes('run.app')) {
+                    response = await fetch(`${CLOUD_RUN_BACKEND_URL}${endpoint}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(reqPayload)
+                    });
+                  } else {
+                    throw fetchErr;
+                  }
+                }
 
                 if (response.ok) {
                   const resText = await response.text();
