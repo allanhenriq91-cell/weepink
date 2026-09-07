@@ -5720,184 +5720,257 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
                       </div>
                    </div>
 
-                   {/* Bloco de Chave PIX Oficial Banco Central (Utilizado como Principal ou Fallback de Contingência) */}
-                   <div className="p-6 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-4">
-                      <div className="flex items-center gap-2 text-emerald-800">
-                         <Key className="w-4 h-4 text-emerald-600" />
-                         <h3 className="text-xs font-black uppercase tracking-wider">
-                            {pixSettings.provider === 'chave_direta' ? 'Sua Chave PIX Oficial (Recebimento Direto na Conta)' : 'Chave PIX de Contingência / Fallback (Garante QR Code Válido)'}
-                         </h3>
-                      </div>
-                      <p className="text-[11px] text-gray-600 leading-relaxed">
-                         Gera o QR Code oficial no padrão EMV do <strong>Banco Central do Brasil</strong>. Compatível com todos os bancos (Nubank, Itaú, Bradesco, Inter, Santander, Caixa, BB, etc.) sem erro de "chave não mais válida".
-                      </p>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                         <div>
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Tipo de Chave</label>
-                            <select
-                               value={pixSettings.pixKeyType || 'email'}
-                               onChange={(e) => setPixSettings({...pixSettings, pixKeyType: e.target.value})}
-                               className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
-                            >
-                               <option value="email">E-mail</option>
-                               <option value="cpf">CPF (apenas números)</option>
-                               <option value="cnpj">CNPJ (apenas números)</option>
-                               <option value="phone">Celular (+55 com DDD)</option>
-                               <option value="random">Chave Aleatória (EVP)</option>
-                            </select>
-                         </div>
-                         <div className="sm:col-span-2">
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Chave PIX</label>
-                            <input 
-                               placeholder="ex: sua-chave-pix@banco.com ou seu CPF"
-                               value={pixSettings.pixKey || ''}
-                               onChange={(e) => setPixSettings({...pixSettings, pixKey: e.target.value})}
-                               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
-                            />
-                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                         <div>
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Nome do Titular / Beneficiário</label>
-                            <input 
-                               placeholder="ex: WE PINK LTDA ou Seu Nome Completo"
-                               value={pixSettings.merchantName || ''}
-                               onChange={(e) => setPixSettings({...pixSettings, merchantName: e.target.value})}
-                               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
-                            />
-                         </div>
-                         <div>
-                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Cidade da Conta</label>
-                            <input 
-                               placeholder="ex: SAO PAULO"
-                               value={pixSettings.merchantCity || ''}
-                               onChange={(e) => setPixSettings({...pixSettings, merchantCity: e.target.value})}
-                               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
-                            />
-                         </div>
-                      </div>
-
-                      <button
-                         type="button"
-                         onClick={handleGeneratePreviewPix}
-                         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold uppercase tracking-wider text-[11px] flex items-center justify-center gap-2 active:scale-95 transition-all shadow-sm"
-                      >
-                         <QrCode className="w-4 h-4" />
-                         Visualizar e Testar QR Code Agora
-                      </button>
-
-                      {directPixPreview && (
-                         <div className="mt-4 p-5 bg-white rounded-2xl border border-emerald-200 shadow-sm space-y-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-xs font-bold">
-                               <Check className="w-4 h-4" /> QR Code Banco Central Gerado com Sucesso!
+                   {/* QUANDO MDCPAY ESTIVER SELECIONADO: Mostra as credenciais da API MDCPay em PRIMEIRO lugar e com destaque */}
+                   {pixSettings.provider === 'mdcpay' && (
+                      <div className="space-y-6">
+                         <div className="p-6 bg-blue-50/60 border-2 border-blue-200 rounded-2xl space-y-6">
+                            <div className="flex items-center justify-between border-b border-blue-100 pb-4">
+                               <div className="flex items-center gap-3">
+                                  <div className="bg-blue-600 text-white px-3 py-1.5 rounded-lg font-black text-xs shadow-xs">
+                                     MDCPay
+                                  </div>
+                                  <div>
+                                     <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                                        Credenciais da API MDCPay (Ativo)
+                                     </h3>
+                                     <p className="text-[11px] text-blue-700 font-medium">
+                                        Integração direta com o gateway de pagamento MDCPay
+                                     </p>
+                                  </div>
+                               </div>
+                               <span className="bg-blue-100 text-blue-700 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                                  Gateway Principal
+                               </span>
                             </div>
-                            <div className="p-2 bg-white inline-block rounded-xl border border-gray-100 shadow-sm">
-                               <QRCodeSVG value={directPixPreview.code} size={160} includeMargin={true} level="M" />
-                            </div>
-                            <p className="text-[11px] text-gray-600">
-                               Chave: <strong className="text-gray-900">{directPixPreview.key}</strong> • Titular: <strong className="text-gray-900">{directPixPreview.name}</strong>
-                            </p>
-                            
-                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-left space-y-1.5">
-                               <span className="text-[9px] font-black text-gray-500 uppercase tracking-wider block">Código Copia e Cola</span>
-                               <div className="flex items-center gap-2">
+
+                            <div className="space-y-4">
+                               <div>
+                                  <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1.5">
+                                     Client ID (Chave Pública)
+                                  </label>
                                   <input 
-                                     type="text" 
-                                     readOnly 
-                                     value={directPixPreview.code} 
-                                     className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[10px] font-mono select-all outline-none"
+                                     placeholder="pk_2b85faa6ef15b35daea1dfab21061bc2"
+                                     value={pixSettings.mdcClientId || ''}
+                                     onChange={(e) => setPixSettings({...pixSettings, mdcClientId: e.target.value})}
+                                     className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-xs font-mono font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
                                   />
-                                  <button 
-                                     type="button"
-                                     onClick={() => {
-                                        navigator.clipboard.writeText(directPixPreview.code);
-                                        setCopiedPreview(true);
-                                        setTimeout(() => setCopiedPreview(false), 2500);
-                                     }}
-                                     className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 hover:brightness-110 active:scale-95 transition-all flex-shrink-0"
-                                  >
-                                     {copiedPreview ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                                     {copiedPreview ? 'Copiado!' : 'Copiar'}
-                                  </button>
+                               </div>
+
+                               <div>
+                                  <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1.5">
+                                     Client Secret / Token da API
+                                  </label>
+                                  <input 
+                                     type="password"
+                                     placeholder="sk_6c062f59209b7275e8586f6ed23eed6b2d8031cf1f4cfe89bea2f224ae07ab6e"
+                                     value={pixSettings.mdcToken || ''}
+                                     onChange={(e) => setPixSettings({...pixSettings, mdcToken: e.target.value})}
+                                     className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-xs font-mono font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                  />
+                               </div>
+
+                               <div>
+                                  <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1.5">
+                                     API URL (Endpoint Base do MDCPay)
+                                  </label>
+                                  <input 
+                                     placeholder="https://app.connectmdcpay.com.br/api/v1"
+                                     value={pixSettings.mdcUrl || ''}
+                                     onChange={(e) => setPixSettings({...pixSettings, mdcUrl: e.target.value})}
+                                     className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-xs font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                  />
                                </div>
                             </div>
-                            <p className="text-[10px] text-emerald-700 font-medium">
-                               * Você pode apontar a câmera do app do seu banco no celular para este QR Code para verificar que seu nome e chave aparecem perfeitamente.
-                            </p>
-                         </div>
-                      )}
-                   </div>
 
-                   {pixSettings.provider === 'mercadopago' ? (
-                      <div className="space-y-4">
-                         <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest">Access Token (Prod ou Teste)</label>
-                         <div className="relative">
-                            <input 
-                               type="password"
-                               placeholder="APP_USR-..."
-                               value={pixSettings.mpToken}
-                               onChange={(e) => setPixSettings({...pixSettings, mpToken: e.target.value})}
-                               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
-                            />
-                            <CreditCard className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
+                            <button
+                               type="button"
+                               onClick={handleTestMdcConnection}
+                               disabled={isTestingConnection}
+                               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold uppercase tracking-wider text-[11px] flex items-center justify-center gap-2 active:scale-95 transition-all shadow-md shadow-blue-600/20 disabled:opacity-70 cursor-pointer"
+                            >
+                               {isTestingConnection ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-white" />}
+                               Testar Conexão com a API MDCPay Agora
+                            </button>
+                            
+                            {connectionResult && (
+                               <div className={`p-4 rounded-xl text-xs font-semibold ${connectionResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                  <p className="font-black text-[11px] uppercase tracking-wider">{connectionResult.success ? '✅ CONEXÃO ESTABELECIDA COM SUCESSO' : '❌ ERRO DE CONEXÃO'}</p>
+                                  <p className="mt-1 leading-relaxed font-mono text-[11px] whitespace-pre-wrap">{connectionResult.message}</p>
+                               </div>
+                            )}
                          </div>
-                         <p className="text-[10px] font-bold text-gray-400 leading-relaxed italic">
-                            * Obtenha em Painel do Desenvolvedor &gt; Minhas Aplicações &gt; Credenciais de Produção.
-                         </p>
-                      </div>
-                   ) : (
-                      <div className="space-y-6">
-                         <div className="space-y-4">
-                            <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest">API URL (Opcional)</label>
-                            <input 
-                               placeholder="https://api-connectmdcpay.squareweb.app/api/v1"
-                               value={pixSettings.mdcUrl}
-                               onChange={(e) => setPixSettings({...pixSettings, mdcUrl: e.target.value})}
-                               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
-                            />
-                         </div>
-                         <div className="space-y-4">
-                            <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest">Client ID</label>
-                            <input 
-                               placeholder="live_..."
-                               value={pixSettings.mdcClientId}
-                               onChange={(e) => setPixSettings({...pixSettings, mdcClientId: e.target.value})}
-                               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
-                            />
-                         </div>
-                         <div className="space-y-4">
-                            <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest">Client Secret / Token</label>
-                            <input 
-                               type="password"
-                               placeholder="sk_..."
-                               value={pixSettings.mdcToken}
-                               onChange={(e) => setPixSettings({...pixSettings, mdcToken: e.target.value})}
-                               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
-                            />
+
+                         {/* Contingência Opcional para MDCPay */}
+                         <div className="p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                            <div className="flex items-center gap-2 text-gray-700">
+                               <Key className="w-4 h-4 text-gray-500" />
+                               <h4 className="text-xs font-black uppercase tracking-wider">
+                                  Chave PIX de Contingência (Opcional - Segurança Extra)
+                               </h4>
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                               Se a API externa do MDCPay apresentar qualquer instabilidade temporária, o sistema usará esta chave como garantia para nunca perder uma venda no checkout.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                               <div>
+                                  <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Tipo</label>
+                                  <select
+                                     value={pixSettings.pixKeyType || 'email'}
+                                     onChange={(e) => setPixSettings({...pixSettings, pixKeyType: e.target.value})}
+                                     className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-xs font-bold focus:border-gray-400 outline-none"
+                                  >
+                                     <option value="email">E-mail</option>
+                                     <option value="cpf">CPF</option>
+                                     <option value="cnpj">CNPJ</option>
+                                     <option value="phone">Celular</option>
+                                     <option value="random">Chave Aleatória</option>
+                                  </select>
+                               </div>
+                               <div className="sm:col-span-2">
+                                  <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Chave PIX</label>
+                                  <input 
+                                     placeholder="ex: sua-chave-pix@banco.com ou seu CPF"
+                                     value={pixSettings.pixKey || ''}
+                                     onChange={(e) => setPixSettings({...pixSettings, pixKey: e.target.value})}
+                                     className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold focus:border-gray-400 outline-none"
+                                  />
+                               </div>
+                            </div>
                          </div>
                       </div>
                    )}
 
-                   {pixSettings.provider === 'mdcpay' && (
-                      <div className="pt-2">
+                   {/* QUANDO CHAVE DIRETA ESTIVER SELECIONADA */}
+                   {pixSettings.provider === 'chave_direta' && (
+                      <div className="p-6 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-4">
+                         <div className="flex items-center gap-2 text-emerald-800">
+                            <Key className="w-4 h-4 text-emerald-600" />
+                            <h3 className="text-xs font-black uppercase tracking-wider">
+                               Sua Chave PIX Oficial (Recebimento Direto na Conta)
+                            </h3>
+                         </div>
+                         <p className="text-[11px] text-gray-600 leading-relaxed">
+                            Gera o QR Code oficial no padrão EMV do <strong>Banco Central do Brasil</strong>. Compatível com todos os bancos (Nubank, Itaú, Bradesco, Inter, Santander, Caixa, BB, etc.) sem erro de "chave não mais válida".
+                         </p>
+
+                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Tipo de Chave</label>
+                               <select
+                                  value={pixSettings.pixKeyType || 'email'}
+                                  onChange={(e) => setPixSettings({...pixSettings, pixKeyType: e.target.value})}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
+                               >
+                                  <option value="email">E-mail</option>
+                                  <option value="cpf">CPF (apenas números)</option>
+                                  <option value="cnpj">CNPJ (apenas números)</option>
+                                  <option value="phone">Celular (+55 com DDD)</option>
+                                  <option value="random">Chave Aleatória (EVP)</option>
+                               </select>
+                            </div>
+                            <div className="sm:col-span-2">
+                               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Chave PIX</label>
+                               <input 
+                                  placeholder="ex: sua-chave-pix@banco.com ou seu CPF"
+                                  value={pixSettings.pixKey || ''}
+                                  onChange={(e) => setPixSettings({...pixSettings, pixKey: e.target.value})}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
+                               />
+                            </div>
+                         </div>
+
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Nome do Titular / Beneficiário</label>
+                               <input 
+                                  placeholder="ex: WE PINK LTDA ou Seu Nome Completo"
+                                  value={pixSettings.merchantName || ''}
+                                  onChange={(e) => setPixSettings({...pixSettings, merchantName: e.target.value})}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
+                               />
+                            </div>
+                            <div>
+                               <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Cidade da Conta</label>
+                               <input 
+                                  placeholder="ex: SAO PAULO"
+                                  value={pixSettings.merchantCity || ''}
+                                  onChange={(e) => setPixSettings({...pixSettings, merchantCity: e.target.value})}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:border-emerald-500 outline-none"
+                               />
+                            </div>
+                         </div>
+
                          <button
                             type="button"
-                            onClick={handleTestMdcConnection}
-                            disabled={isTestingConnection}
-                            className="w-full bg-blue-600 text-white py-3.5 rounded-2xl font-bold uppercase tracking-wider text-[11px] flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition-all disabled:opacity-70"
+                            onClick={handleGeneratePreviewPix}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold uppercase tracking-wider text-[11px] flex items-center justify-center gap-2 active:scale-95 transition-all shadow-sm"
                          >
-                            {isTestingConnection ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-white" />}
-                            Testar Conexão MDCPay
+                            <QrCode className="w-4 h-4" />
+                            Visualizar e Testar QR Code Agora
                          </button>
-                         
-                         {connectionResult && (
-                            <div className={`mt-3 p-4 rounded-xl text-xs font-semibold ${connectionResult.success ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
-                               <p className="font-bold">{connectionResult.success ? '✅ SUCESSO DE INTEGRAÇÃO' : '❌ ERRO DE CONEXÃO'}</p>
-                               <p className="mt-1 leading-relaxed font-mono text-[10px] whitespace-pre-wrap">{connectionResult.message}</p>
+
+                         {directPixPreview && (
+                            <div className="mt-4 p-5 bg-white rounded-2xl border border-emerald-200 shadow-sm space-y-4 text-center">
+                               <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-xs font-bold">
+                                  <Check className="w-4 h-4" /> QR Code Banco Central Gerado com Sucesso!
+                               </div>
+                               <div className="p-2 bg-white inline-block rounded-xl border border-gray-100 shadow-sm">
+                                  <QRCodeSVG value={directPixPreview.code} size={160} includeMargin={true} level="M" />
+                               </div>
+                               <p className="text-[11px] text-gray-600">
+                                  Chave: <strong className="text-gray-900">{directPixPreview.key}</strong> • Titular: <strong className="text-gray-900">{directPixPreview.name}</strong>
+                               </p>
+                               
+                               <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-left space-y-1.5">
+                                  <span className="text-[9px] font-black text-gray-500 uppercase tracking-wider block">Código Copia e Cola</span>
+                                  <div className="flex items-center gap-2">
+                                     <input 
+                                        type="text" 
+                                        readOnly 
+                                        value={directPixPreview.code} 
+                                        className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[10px] font-mono select-all outline-none"
+                                     />
+                                     <button 
+                                        type="button"
+                                        onClick={() => {
+                                           navigator.clipboard.writeText(directPixPreview.code);
+                                           setCopiedPreview(true);
+                                           setTimeout(() => setCopiedPreview(false), 2500);
+                                        }}
+                                        className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 hover:brightness-110 active:scale-95 transition-all flex-shrink-0"
+                                     >
+                                        {copiedPreview ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {copiedPreview ? 'Copiado!' : 'Copiar'}
+                                     </button>
+                                  </div>
+                               </div>
+                               <p className="text-[10px] text-emerald-700 font-medium">
+                                  * Você pode apontar a câmera do app do seu banco no celular para este QR Code para verificar que seu nome e chave aparecem perfeitamente.
+                               </p>
                             </div>
                          )}
+                      </div>
+                   )}
+
+                   {/* QUANDO MERCADO PAGO ESTIVER SELECIONADO */}
+                   {pixSettings.provider === 'mercadopago' && (
+                      <div className="space-y-4">
+                         <div className="p-6 bg-pink-50/50 border border-pink-100 rounded-2xl space-y-4">
+                            <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest">Access Token Mercado Pago (Prod ou Teste)</label>
+                            <div className="relative">
+                               <input 
+                                  type="password"
+                                  placeholder="APP_USR-..."
+                                  value={pixSettings.mpToken}
+                                  onChange={(e) => setPixSettings({...pixSettings, mpToken: e.target.value})}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
+                               />
+                               <CreditCard className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 leading-relaxed italic">
+                               * Obtenha em Painel do Desenvolvedor &gt; Minhas Aplicações &gt; Credenciais de Produção.
+                            </p>
+                         </div>
                       </div>
                    )}
 
