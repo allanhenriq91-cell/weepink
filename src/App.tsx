@@ -95,8 +95,6 @@ const storage = getStorage(app, firebaseConfig.storageBucket ? `gs://${firebaseC
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
-export const CLOUD_RUN_BACKEND_URL = "https://ais-pre-abmvi4h2lj2gnrmdmhteok-228268312920.us-west2.run.app";
-
 // Helper global para resolver a URL final do backend de API
 export const resolveApiUrl = (path: string, customBackendUrl?: string): string => {
   let target = customBackendUrl ? customBackendUrl.trim() : '';
@@ -105,28 +103,16 @@ export const resolveApiUrl = (path: string, customBackendUrl?: string): string =
     const currentOrigin = window.location.origin;
     const currentHost = window.location.hostname;
     
-    // Verifica se estamos rodando diretamente no ambiente com Express ativo (Cloud Run ou dev local)
-    const isLocalOrContainer = 
-      currentHost.includes('run.app') || 
-      currentHost === 'localhost' || 
-      currentHost === '127.0.0.1';
+    // Se a URL salva for do Cloud Run da AI Studio (run.app) mas estivermos rodando fora dele (ex: no Netlify),
+    // ignoramos a URL do Cloud Run para evitar bloqueios de CORS e Failed to fetch.
+    // Assim a requisição usa a rota relativa (/api/...) que é atendida pelas Netlify Functions nativas.
+    if (target && target.includes('run.app') && !currentHost.includes('run.app')) {
+      target = '';
+    }
 
-    if (isLocalOrContainer) {
-      // Se a página já está no mesmo origin ou container Cloud Run, a rota relativa é ideal e evita CORS
-      if (
-        !target ||
-        target.startsWith(currentOrigin) ||
-        target.includes('run.app') ||
-        target.includes('localhost')
-      ) {
-        target = '';
-      }
-    } else {
-      // Se estivermos rodando no Netlify, Vercel ou qualquer domínio externo estático:
-      // Se o usuário não configurou explicitamente uma URL de backend, direciona automaticamente para o servidor Express no Cloud Run
-      if (!target) {
-        target = CLOUD_RUN_BACKEND_URL;
-      }
+    // Se estivermos no mesmo domínio do backend configurado ou em localhost
+    if (target && (target.startsWith(currentOrigin) || ((currentHost === 'localhost' || currentHost === '127.0.0.1') && target.includes('localhost')))) {
+      target = '';
     }
   }
 
@@ -136,7 +122,7 @@ export const resolveApiUrl = (path: string, customBackendUrl?: string): string =
     return `${base}${cleanPath}`;
   }
 
-  return path;
+  return path.startsWith("/") ? path : `/${path}`;
 };
 
 // --- Constants & Types ---
@@ -3286,27 +3272,57 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
           },
           body: JSON.stringify(payload)
         });
-
-        // Se retornar 404 (ex: servidor estático do Netlify sem rota Express local), faz fallback direto para o Cloud Run
-        if (response.status === 404 && !primaryUrl.includes('run.app')) {
-          console.warn('Endpoint relativo retornou 404 no host atual. Conectando via backend Cloud Run...');
-          response = await fetch(`${CLOUD_RUN_BACKEND_URL}/api/mdcpay/test-connection`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-        }
       } catch (fetchErr: any) {
-        if (!primaryUrl.includes('run.app')) {
-          console.warn('Falha no endpoint primário, tentando servidor Cloud Run diretamente...');
-          response = await fetch(`${CLOUD_RUN_BACKEND_URL}/api/mdcpay/test-connection`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+        // Se a chamada para /api/ falhou no browser (ex: CORS ou servidor offline), tenta diagnosticar direto com o gateway MDCPay
+        try {
+          const cleanBase = (pixSettings.mdcUrl || 'https://app.connectmdcpay.com.br/api/v1').trim().replace(/\/$/, '');
+          const baseAuth = btoa(`${(pixSettings.mdcClientId || '').trim()}:${(pixSettings.mdcToken || '').trim()}`);
+          const directRes = await fetch(`${cleanBase}/withdraws/@me/balance`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Basic ${baseAuth}`,
+              'Content-Type': 'application/json'
+            }
           });
-        } else {
-          throw fetchErr;
+          if (directRes.ok) {
+            const directData = await directRes.json();
+            const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
+            setConnectionResult({
+              success: true,
+              message: `Conexão validada com sucesso com a MDCPay! Saldo: R$ ${Number(bal || 0).toFixed(2)}`
+            });
+            return;
+          }
+        } catch (directErr) {
+          // Ignora e repassa o erro com mensagem detalhada
         }
+        throw new Error(`Não foi possível conectar ao servidor de API (${fetchErr.message}). Se você está no Netlify, verifique se a pasta 'netlify/functions' foi incluída no deploy para ativar as funções serverless nativas.`);
+      }
+
+      if (response.status === 404) {
+        // Tenta teste direto caso o endpoint 404 seja estático
+        try {
+          const cleanBase = (pixSettings.mdcUrl || 'https://app.connectmdcpay.com.br/api/v1').trim().replace(/\/$/, '');
+          const baseAuth = btoa(`${(pixSettings.mdcClientId || '').trim()}:${(pixSettings.mdcToken || '').trim()}`);
+          const directRes = await fetch(`${cleanBase}/withdraws/@me/balance`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Basic ${baseAuth}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (directRes.ok) {
+            const directData = await directRes.json();
+            const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
+            setConnectionResult({
+              success: true,
+              message: `Conexão direta validada com sucesso! Saldo: R$ ${Number(bal || 0).toFixed(2)}`
+            });
+            return;
+          }
+        } catch (directErr) {}
+
+        throw new Error('A rota /api/mdcpay/test-connection retornou 404. Certifique-se de implantar com as Netlify Functions ativas.');
       }
       
       const responseText = await response.text();
@@ -6017,17 +6033,28 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
                    )}
 
                    <div className="border-t border-gray-100 pt-6 space-y-4 text-left">
-                       <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest text-left">
-                          URL do Servidor API Externo (Opcional)
-                       </label>
+                       <div className="flex items-center justify-between">
+                         <label className="block text-[11px] font-black text-gray-500 uppercase tracking-widest text-left">
+                            URL do Servidor API Externo (Opcional)
+                         </label>
+                         {pixSettings.backendApiUrl && (
+                           <button
+                             type="button"
+                             onClick={() => setPixSettings({...pixSettings, backendApiUrl: ''})}
+                             className="text-[10px] text-[#ff0080] font-black hover:underline cursor-pointer uppercase tracking-wider"
+                           >
+                             Limpar (Usar Funções Nativas)
+                           </button>
+                         )}
+                       </div>
                        <input 
-                          placeholder="https://ais-pre-abmvi4h2lj2gnrmdmhteok-228268312920.us-west2.run.app"
+                          placeholder="Deixe em branco para usar as Netlify Functions integradas"
                           value={pixSettings.backendApiUrl || ''}
                           onChange={(e) => setPixSettings({...pixSettings, backendApiUrl: e.target.value})}
                           className="w-full bg-gray-50 border border-gray-200 rounded-xl px-6 py-4 text-sm font-bold focus:bg-white focus:border-[#ff0080] outline-none transition-all"
                        />
                        <p className="text-[10px] font-bold text-gray-400 leading-relaxed italic text-left">
-                          * Se hospedar este site de forma estática em outro servidor (como o Netlify), coloque aqui a URL principal do seu app da AI Studio acima (https://ais-pre-abmvi4h2lj2gnrmdmhteok-228268312920.us-west2.run.app) para que as requisições de pagamento usem o servidor de backend da AI Studio sem dar erro 404. Se deixar em branco, o sistema tentará o redirecionamento automático inteligente para a AI Studio.
+                          * <strong>No Netlify:</strong> Deixe este campo <strong>em branco</strong>! O projeto já inclui funções serverless nativas na pasta <code className="text-[#ff0080]">netlify/functions</code> que respondem a todas as rotas da API no mesmo domínio, sem bloqueios de CORS e sem &quot;Failed to fetch&quot;.
                        </p>
                     </div>
 
@@ -7305,27 +7332,12 @@ function CheckoutPaymentPage({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(reqPayload)
                   });
-
-                  if ((!response.ok || response.status === 404) && !primaryUrl.includes('run.app')) {
-                    response = await fetch(`${CLOUD_RUN_BACKEND_URL}${endpoint}`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(reqPayload)
-                    });
-                  }
                 } catch (fetchErr) {
-                  if (!primaryUrl.includes('run.app')) {
-                    response = await fetch(`${CLOUD_RUN_BACKEND_URL}${endpoint}`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(reqPayload)
-                    });
-                  } else {
-                    throw fetchErr;
-                  }
+                  console.warn("Primary API endpoint fetch error:", fetchErr);
+                  return null;
                 }
 
-                if (response.ok) {
+                if (response && response.ok) {
                   const resText = await response.text();
                   if (resText) {
                     const parsed = JSON.parse(resText);

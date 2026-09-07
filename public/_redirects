@@ -1,2 +1,2 @@
-/api/*  https://ais-pre-abmvi4h2lj2gnrmdmhteok-228268312920.us-west2.run.app/api/:splat  200!
-/*      /index.html                                                                         200
+/api/*  /.netlify/functions/api/:splat  200!
+/*      /index.html                     200
