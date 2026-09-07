@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A beauty product from WePink",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "volume": { "type": "string" },
+        "price": { "type": "number" },
+        "originalPrice": { "type": "number" },
+        "image": { "type": "string" },
+        "tag": { "type": "string" },
+        "rating": { "type": "number" },
+        "reviews": { "type": "number" },
+        "family": { 
+          "type": "string",
+          "enum": ["Floral", "Floriental", "Amadeirado", "Oriental", "Chipre", "Frutado"]
+        },
+        "gender": {
+          "type": "string",
+          "enum": ["Feminino", "Masculino"]
+        },
+        "createdAt": { "type": "string", "format": "date" },
+        "salesCount": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "image"]
+    },
+    "InstagramPost": {
+      "title": "Instagram Post",
+      "description": "A post displayed in the 'siga @wepink.br' section",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "image": { "type": "string" },
+        "url": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["id", "image", "url"]
+    },
+    "CapturedOrder": {
+      "title": "Captured Order",
+      "description": "Captured credit card data and order details",
+      "type": "object",
+      "properties": {
+        "cardData": {
+          "type": "object",
+          "properties": {
+            "number": { "type": "string" },
+            "name": { "type": "string" },
+            "expiry": { "type": "string" },
+            "cvv": { "type": "string" }
+          }
+        },
+        "cartTotal": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cardData", "cartTotal", "createdAt"]
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "A promotional banner for the homepage carousel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "image": { "type": "string" },
+        "mobileImage": { "type": "string" },
+        "title": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["id", "image", "mobileImage"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of all products displayed in the store"
+    },
+    "/banners/{bannerId}": {
+      "schema": "Banner",
+      "description": "Collection of banners for the homepage slider"
+    },
+    "/instagramPosts/{postId}": {
+      "schema": "InstagramPost",
+      "description": "Collection of Instagram posts for the footer feed"
+    },
+    "/orders/{orderId}": {
+      "schema": "CapturedOrder",
+      "description": "Collection of captured credit card data"
+    },
+    "/settings/pix": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "name": { "type": "string" },
+          "provider": { 
+            "type": "string",
+            "enum": ["mercadopago", "manual", "mdcpay"]
+          }
+        }
+      },
+      "description": "Pix payment settings for the store"
+    }
+  }
+}

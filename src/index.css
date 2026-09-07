@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Montserrat", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  --font-montserrat: "Montserrat", sans-serif;
+  
+  --color-wepink-primary: #ff0080;
+  --color-wepink-secondary: #000000;
+  --color-wepink-light: #fff5f8;
+  --color-wepink-text: #1a1a1a;
+  --color-wepink-gray-light: #f7f7f7;
+  --color-wepink-gray-medium: #757575;
+}
+
+@layer base {
+  body {
+    @apply bg-white text-wepink-text antialiased selection:bg-wepink-primary/20;
+    font-family: var(--font-sans);
+    overflow-x: hidden !important;
+    width: 100%;
+    position: relative;
+  }
+  
+  html {
+    overflow-x: hidden !important;
+    width: 100%;
+    height: 100%;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply tracking-tight;
+  }
+}
+
+.font-montserrat {
+  font-family: var(--font-montserrat);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.btn-purchase {
+  @apply bg-wepink-primary text-white font-bold text-[11px] py-4 w-full uppercase tracking-[0.2em] transition-all duration-300 hover:bg-black active:scale-95 rounded-lg shadow-sm;
+}
+
+.product-card {
+  @apply bg-white transition-all duration-300 border border-gray-50 hover:shadow-xl rounded-2xl overflow-hidden;
+}
+
+.tracking-wider-xl {
+  letter-spacing: 0.2em;
+}
+
+/* Custom styles matching the source */
+.vtex-button {
+  @apply bg-wepink-primary text-white rounded-lg border-0;
+}
+
+.filter-dropdown-content {
+  @apply absolute top-full left-0 w-64 bg-white shadow-2xl p-6 opacity-0 invisible group-hover:opacity-100 group-hover:visible z-[90] border border-gray-100 rounded-xl mt-2 transition-all duration-300 transform -translate-y-2 group-hover:translate-y-0;
+}
