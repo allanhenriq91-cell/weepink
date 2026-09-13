@@ -218,12 +218,26 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
         if (response.data && (response.data.total_balance !== undefined || response.data.available_balance !== undefined || response.data.balance !== undefined || response.data.success !== undefined)) {
           const bal = response.data.total_balance ?? response.data.available_balance ?? response.data.balance ?? 0;
+          
+          let hasTransactionsScope = true;
+          let warningMsg = "";
+          try {
+            await axios.get(urls.transactions, { headers, timeout: 5000 });
+          } catch (txErr: any) {
+            if (txErr.response?.status === 403) {
+              hasTransactionsScope = false;
+              warningMsg = "Atenção: A chave conectou com sucesso e consultou o saldo (R$ " + Number(bal || 0).toFixed(2) + "), porém retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), certifique-se de marcar a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta abaixo como contingência.";
+            }
+          }
+
           return {
             statusCode: 200,
             headers: CORS_HEADERS,
             body: JSON.stringify({
               success: true,
-              message: "Credenciais de API do MDCPay autenticadas com sucesso!",
+              hasTransactionsScope,
+              warning: warningMsg || undefined,
+              message: warningMsg || "Credenciais de API do MDCPay autenticadas com sucesso!",
               balance: bal
             })
           };
@@ -310,13 +324,16 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
         const urls = resolveMdcUrls(apiUrl);
         const headers = buildMdcHeaders(clientId, clientSecret);
 
+        const cleanPhoneDigits = (body.phone || '').replace(/\D/g, '') || '11999999999';
         const mdcPayload = {
           method: "PIX",
-          amount: Math.round(numAmount * 100),
+          amount: Math.max(100, Math.round(numAmount * 100)),
           description: "Pedido Wepink",
+          expiresIn: 900,
           payer: {
             name: cleanName,
             email: cleanEmail,
+            phone: cleanPhoneDigits,
             document: {
               type: "CPF",
               number: cleanCpf
@@ -406,6 +423,19 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
           })
         };
       } catch (error: any) {
+        console.error("Erro MDCPay API:", error.response?.data || error.message || error);
+        const apiStatus = error.response?.status;
+        const apiData = error.response?.data;
+        let detailedMsg = `Erro ao comunicar com gateway MDCPay: ${error.message}`;
+
+        if (apiStatus === 403) {
+          detailedMsg = "MDCPay retornou erro 403 (Forbidden): A sua Chave de API conectou ao saldo, mas não possui permissão de escrita/transação ('TRANSACTIONS') no painel da Connect Pay, ou sua conta na Connect Pay ainda está em análise de compliance. Para emitir cobranças, edite a chave no painel da Connect Pay (app.connectmdcpay.com.br/integrations) e ative a permissão 'TRANSACTIONS', ou configure uma Chave PIX direta no Painel Adm da Wepink para receber pagamentos imediatamente.";
+        } else if (apiStatus === 401) {
+          detailedMsg = "MDCPay retornou erro 401 (Unauthorized): Client ID ou Client Secret incorretos no painel da Connect Pay.";
+        } else if (apiData?.message) {
+          detailedMsg = `MDCPay: ${apiData.message}`;
+        }
+
         const effectiveKey = (body.pixKey || process.env.PIX_KEY || '').trim();
         if (effectiveKey) {
           const fallbackCode = generatePixBRCode(effectiveKey, numAmount, body.merchantName || 'WE PINK LTDA', body.merchantCity || 'SAO PAULO');
@@ -415,16 +445,19 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
             body: JSON.stringify({
               id: `pix_${Date.now()}`,
               qr_code: fallbackCode,
-              status: 'pending'
+              status: 'pending',
+              contingency: true,
+              warning: detailedMsg
             })
           };
         }
         return {
-          statusCode: 500,
+          statusCode: apiStatus || 500,
           headers: CORS_HEADERS,
           body: JSON.stringify({
-            error: `Erro ao comunicar com gateway MDCPay: ${error.message}`,
-            details: error.response?.data
+            error: detailedMsg,
+            status: apiStatus,
+            details: apiData
           })
         };
       }

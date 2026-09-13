@@ -3029,7 +3029,7 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
 
   const [isSaving, setIsSaving] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionResult, setConnectionResult] = useState<{success: boolean, message: string} | null>(null);
+  const [connectionResult, setConnectionResult] = useState<{success: boolean, message: string, warning?: boolean} | null>(null);
   const [isUploading, setIsUploading] = useState<{ desktop: boolean, mobile: boolean, product: boolean, extra: number | null, color: number | null }>({ 
     desktop: false, 
     mobile: false, 
@@ -3287,9 +3287,24 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
           if (directRes.ok) {
             const directData = await directRes.json();
             const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
+            
+            let directTxWarning = false;
+            let directMsg = `Conexão validada com sucesso com a MDCPay! Saldo: R$ ${Number(bal || 0).toFixed(2)}`;
+            try {
+              const txRes = await fetch(`${cleanBase}/transactions`, {
+                method: 'GET',
+                headers: { 'Authorization': `Basic ${baseAuth}`, 'Content-Type': 'application/json' }
+              });
+              if (txRes.status === 403) {
+                directTxWarning = true;
+                directMsg = `⚠️ Conectado ao saldo da MDCPay (R$ ${Number(bal || 0).toFixed(2)}), mas a chave retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), ative o escopo 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
+              }
+            } catch (txE) {}
+
             setConnectionResult({
               success: true,
-              message: `Conexão validada com sucesso com a MDCPay! Saldo: R$ ${Number(bal || 0).toFixed(2)}`
+              warning: directTxWarning,
+              message: directMsg
             });
             return;
           }
@@ -3314,9 +3329,23 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
           if (directRes.ok) {
             const directData = await directRes.json();
             const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
+            let directTxWarning = false;
+            let directMsg = `Conexão direta validada com sucesso! Saldo: R$ ${Number(bal || 0).toFixed(2)}`;
+            try {
+              const txRes = await fetch(`${cleanBase}/transactions`, {
+                method: 'GET',
+                headers: { 'Authorization': `Basic ${baseAuth}`, 'Content-Type': 'application/json' }
+              });
+              if (txRes.status === 403) {
+                directTxWarning = true;
+                directMsg = `⚠️ Conectado ao saldo da MDCPay (R$ ${Number(bal || 0).toFixed(2)}), mas a chave retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), ative o escopo 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
+              }
+            } catch (txE) {}
+
             setConnectionResult({
               success: true,
-              message: `Conexão direta validada com sucesso! Saldo: R$ ${Number(bal || 0).toFixed(2)}`
+              warning: directTxWarning,
+              message: directMsg
             });
             return;
           }
@@ -3340,7 +3369,8 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
       if (data.success) {
         setConnectionResult({
           success: true,
-          message: `${data.message} Saldo: R$ ${Number(data.balance || 0).toFixed(2)}`
+          warning: Boolean(data.warning || data.hasTransactionsScope === false),
+          message: data.warning ? data.warning : `${data.message} Saldo: R$ ${Number(data.balance || 0).toFixed(2)}`
         });
       } else {
         setConnectionResult({
@@ -5851,8 +5881,20 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
                             </button>
                             
                             {connectionResult && (
-                               <div className={`p-4 rounded-xl text-xs font-semibold ${connectionResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                                  <p className="font-black text-[11px] uppercase tracking-wider">{connectionResult.success ? '✅ CONEXÃO ESTABELECIDA COM SUCESSO' : '❌ ERRO DE CONEXÃO'}</p>
+                               <div className={`p-4 rounded-xl text-xs font-semibold ${
+                                 connectionResult.warning 
+                                   ? 'bg-amber-50 text-amber-900 border border-amber-300' 
+                                   : connectionResult.success 
+                                     ? 'bg-green-50 text-green-700 border border-green-200' 
+                                     : 'bg-red-50 text-red-700 border border-red-200'
+                               }`}>
+                                  <p className="font-black text-[11px] uppercase tracking-wider">
+                                    {connectionResult.warning 
+                                      ? '⚠️ CONECTADO COM AVISO DE ESCOPO (403)' 
+                                      : connectionResult.success 
+                                        ? '✅ CONEXÃO ESTABELECIDA COM SUCESSO' 
+                                        : '❌ ERRO DE CONEXÃO'}
+                                  </p>
                                   <p className="mt-1 leading-relaxed font-mono text-[11px] whitespace-pre-wrap">{connectionResult.message}</p>
                                </div>
                             )}
@@ -7280,6 +7322,7 @@ function CheckoutPaymentPage({
         const effectiveName = settings.merchantName || settings.name || checkoutPixConfig.name || 'WE PINK LTDA';
         const effectiveCity = settings.merchantCity || checkoutPixConfig.city || 'SAO PAULO';
         const effectiveKeyType = settings.pixKeyType || checkoutPixConfig.keyType || (effectivePixKey.includes('@') ? 'email' : 'random');
+        let lastApiError = '';
 
         if (provider === 'chave_direta') {
           if (!effectivePixKey) {
@@ -7316,6 +7359,7 @@ function CheckoutPaymentPage({
                   firstName: firstName || 'Cliente',
                   lastName: lastName || 'Wepink',
                   cpf: (cpf || '').replace(/\D/g, '') || '52998224725',
+                  phone: (phone || '').replace(/\D/g, '') || '11999999999',
                   mpToken: settings.mpToken,
                   mdcToken: settings.mdcToken,
                   mdcUrl: settings.mdcUrl,
@@ -7332,8 +7376,9 @@ function CheckoutPaymentPage({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(reqPayload)
                   });
-                } catch (fetchErr) {
+                } catch (fetchErr: any) {
                   console.warn("Primary API endpoint fetch error:", fetchErr);
+                  lastApiError = 'Falha de rede ao conectar à API: ' + (fetchErr?.message || 'Offline');
                   return null;
                 }
 
@@ -7344,6 +7389,15 @@ function CheckoutPaymentPage({
                     if (parsed && (parsed.qr_code || parsed.qr_code_base64)) {
                       return parsed;
                     }
+                  }
+                } else if (response) {
+                  try {
+                    const errJson = await response.json();
+                    if (errJson?.error) {
+                      lastApiError = errJson.error;
+                    }
+                  } catch (e) {
+                    lastApiError = `O servidor de pagamentos retornou status ${response.status} (${response.statusText || 'Erro'})`;
                   }
                 }
               } catch (err) {
@@ -7376,7 +7430,7 @@ function CheckoutPaymentPage({
               status: 'pending'
             };
           } else {
-            throw new Error('Não foi possível gerar a cobrança PIX via ' + provider + '. Verifique suas credenciais no painel de administração.');
+            throw new Error(lastApiError || ('Não foi possível gerar a cobrança PIX via ' + provider + '. Verifique suas credenciais no painel de administração.'));
           }
         }
 
@@ -9164,9 +9218,15 @@ export default function App() {
     const savedMock = localStorage.getItem('wepink_mock_user');
     if (savedMock) {
       try {
-        setUser(JSON.parse(savedMock));
+        const parsed = JSON.parse(savedMock);
+        if (parsed?.email && ADMIN_EMAILS.includes(parsed.email.toLowerCase())) {
+          setUser(parsed);
+        } else {
+          localStorage.removeItem('wepink_mock_user');
+        }
       } catch (e) {
         console.error('Error parsing saved mock user:', e);
+        localStorage.removeItem('wepink_mock_user');
       }
     }
 
@@ -9351,27 +9411,7 @@ export default function App() {
      }
  
      try {
-       try {
-         await signInWithEmailAndPassword(auth, email, password);
-       } catch (signInError: any) {
-         // Since their email is an authorized administrator, if Firebase sign-in fails
-         // we automatically log them in using the local mock session as a fallback!
-         console.warn('Firebase email login failed, using secure local admin fallback:', signInError);
-         const mockUser = {
-           uid: email.replace(/[@.]/g, '-'),
-           email: email,
-           displayName: 'Administrador Wepink (Local)',
-           emailVerified: true
-         } as unknown as FirebaseUser;
-         
-         localStorage.setItem('wepink_mock_user', JSON.stringify(mockUser));
-         setUser(mockUser);
-         setIsLoginOpen(false);
-         setToast({ visible: true, message: 'Acesso liberado com sucesso via contingência!' });
-         setIsLoggingIn(false);
-         return;
-       }
-       
+       await signInWithEmailAndPassword(auth, email, password);
        localStorage.removeItem('wepink_mock_user'); // Logged in through real Firebase Auth
        setIsLoginOpen(false);
        setToast({ visible: true, message: 'Login realizado com sucesso!' });

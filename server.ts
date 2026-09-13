@@ -322,14 +322,17 @@ async function startServer() {
       const urls = resolveMdcUrls(apiUrl);
       const headers = buildMdcHeaders(clientId, clientSecret);
 
+      const cleanPhoneDigits = (req.body.phone || '').replace(/\D/g, '') || '11999999999';
       // Official Connect Pay (MDCPay) API v1 transaction payload
       const mdcPayload = {
         method: "PIX",
-        amount: Math.round(numAmount * 100), // in cents
+        amount: Math.max(100, Math.round(numAmount * 100)), // in cents
         description: "Pedido Wepink",
+        expiresIn: 900,
         payer: {
           name: cleanName,
           email: cleanEmail,
+          phone: cleanPhoneDigits,
           document: {
             type: "CPF",
             number: cleanCpf
@@ -432,7 +435,17 @@ async function startServer() {
 
     } catch (error: any) {
       console.error("Erro MDCPay API:", error.response?.data || error.message || error);
-      const apiErr = error.response?.data?.message || error.response?.data?.error || error.message;
+      const apiStatus = error.response?.status;
+      const apiData = error.response?.data;
+      let detailedMsg = `Erro ao comunicar com gateway MDCPay: ${error.message}`;
+
+      if (apiStatus === 403) {
+        detailedMsg = "MDCPay retornou erro 403 (Forbidden): A sua Chave de API conectou ao saldo, mas não possui permissão de escrita/transação ('TRANSACTIONS') no painel da Connect Pay, ou sua conta na Connect Pay ainda está em análise de compliance. Para emitir cobranças, edite a chave no painel da Connect Pay (app.connectmdcpay.com.br/integrations) e ative a permissão 'TRANSACTIONS', ou configure uma Chave PIX direta no Painel Adm da Wepink para receber pagamentos imediatamente.";
+      } else if (apiStatus === 401) {
+        detailedMsg = "MDCPay retornou erro 401 (Unauthorized): Client ID ou Client Secret incorretos no painel da Connect Pay.";
+      } else if (apiData?.message) {
+        detailedMsg = `MDCPay: ${apiData.message}`;
+      }
 
       // Contingência apenas se o lojista definiu uma chave manual explícita
       const effectiveKey = (req.body.pixKey || process.env.PIX_KEY || '').trim();
@@ -448,12 +461,15 @@ async function startServer() {
         return res.json({
           id: `pix_${Date.now()}`,
           qr_code: fallbackCode,
-          status: 'pending'
+          status: 'pending',
+          contingency: true,
+          warning: detailedMsg
         });
       }
 
-      return res.status(500).json({
-        error: `Erro ao comunicar com gateway MDCPay: ${apiErr}`,
+      return res.status(apiStatus || 500).json({
+        error: detailedMsg,
+        status: apiStatus,
         details: error.response?.data
       });
     }
@@ -490,9 +506,23 @@ async function startServer() {
 
       if (response.data && (response.data.total_balance !== undefined || response.data.available_balance !== undefined || response.data.balance !== undefined || response.data.success !== undefined)) {
         const bal = response.data.total_balance ?? response.data.available_balance ?? response.data.balance ?? 0;
+        
+        let hasTransactionsScope = true;
+        let warningMsg = "";
+        try {
+          await axios.get(urls.transactions, { headers, timeout: 5000 });
+        } catch (txErr: any) {
+          if (txErr.response?.status === 403) {
+            hasTransactionsScope = false;
+            warningMsg = "Atenção: A chave conectou com sucesso e consultou o saldo (R$ " + Number(bal || 0).toFixed(2) + "), porém retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), certifique-se de marcar a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta abaixo como contingência.";
+          }
+        }
+
         return res.json({ 
           success: true, 
-          message: "Credenciais de API do MDCPay autenticadas com sucesso!", 
+          hasTransactionsScope,
+          warning: warningMsg || undefined,
+          message: warningMsg || "Credenciais de API do MDCPay autenticadas com sucesso!", 
           balance: bal 
         });
       }
