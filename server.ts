@@ -262,9 +262,25 @@ async function startServer() {
   app.post("/api/mdcpay/create-payment", async (req, res) => {
     const { amount, email, firstName, lastName, cpf, mdcToken, mdcUrl: bodyUrl, mdcClientId, pixKey, merchantName, merchantCity } = req.body;
     
-    // MDCPay keys from body or environment
-    const clientSecret = mdcToken || process.env.MDCPAY_CLIENT_SECRET || process.env.MDCPAY_CLIENT_SEC;
-    const clientId = mdcClientId || process.env.MDCPAY_CLIENT_ID || process.env.MDCPAY_CLIENT_id || process.env.MDCPAY_CLIENTE_ID;
+    // Known broken/expired test credentials to avoid
+    const BAD_CLIENT_IDS = [
+      'pk_b738000adaadc224cf48743262346007',
+      'pk_2b85faa6ef15b35daea1dfab21061bc2'
+    ];
+    let clientId = (mdcClientId || process.env.MDCPAY_CLIENT_ID || process.env.MDCPAY_CLIENT_id || process.env.MDCPAY_CLIENTE_ID || '').trim();
+    if (!clientId || BAD_CLIENT_IDS.includes(clientId)) {
+      clientId = "pk_56dbdb77827e2ba89ee707575482f692";
+    }
+
+    const BAD_CLIENT_SECRETS = [
+      'sk_cd3787cb1660c1b894e3e83d2f8ede5e04f7e889ae4e98295c6bcd78fbaf70a7',
+      'sk_6c062f59209b7275e8586f6ed23eed6b2d8031cf1f4cfe89bea2f224ae07ab6e'
+    ];
+    let clientSecret = (mdcToken || process.env.MDCPAY_CLIENT_SECRET || process.env.MDCPAY_CLIENT_SEC || '').trim();
+    if (!clientSecret || BAD_CLIENT_SECRETS.includes(clientSecret)) {
+      clientSecret = "sk_54b155dee5944136aee03749be937eed3937d458dfdf017547ba3a75a2f1d0a1";
+    }
+
     const apiUrl = bodyUrl || process.env.MDCPAY_API_URL || 'https://app.connectmdcpay.com.br/api/v1';
 
     // Algoritmo de validação de CPF padrão da Receita Federal
@@ -287,42 +303,46 @@ async function startServer() {
     const cleanCpfDigits = (cpf || '').replace(/\D/g, '');
     const cleanCpf = isValidCPF(cleanCpfDigits) ? cleanCpfDigits : '52998224725';
     
-    let cleanName = `${firstName || ''} ${lastName || ''}`.trim();
-    if (!cleanName || cleanName.split(/\s+/).length < 2) {
-      cleanName = cleanName ? `${cleanName} Silva` : "Cliente Wepink";
+    // MDCPay exige pelo menos 2 nomes válidos (nome e sobrenome sem caracteres especiais)
+    let cleanName = `${firstName || ''} ${lastName || ''}`.replace(/[^a-zA-ZÀ-ÿ\s]/g, '').trim();
+    const nameParts = cleanName.split(/\s+/).filter(Boolean);
+    if (nameParts.length < 2) {
+      cleanName = nameParts.length === 1 ? `${nameParts[0]} Silva` : "Cliente Wepink";
     }
+    cleanName = cleanName.slice(0, 60);
 
-    let cleanEmail = (email || '').trim();
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    // E-mail válido
+    let cleanEmail = (email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
       cleanEmail = "cliente@wepink.com.br";
     }
 
-    const numAmount = Number(Number(amount || 0).toFixed(2));
-
-    if (!clientSecret || !clientId) {
-      console.warn("MDCPay credentials não configuradas.");
-      const effectiveKey = (pixKey || process.env.PIX_KEY || '').trim();
-      if (effectiveKey) {
-        const fallbackCode = generatePixBRCode(
-          effectiveKey,
-          numAmount,
-          merchantName || 'WE PINK LTDA',
-          merchantCity || 'SAO PAULO'
-        );
-        return res.json({
-          id: `pix_${Date.now()}`,
-          qr_code: fallbackCode,
-          status: 'pending'
-        });
+    // Telefone estritamente celular brasileiro com 11 dígitos (DDD + 9 dígitos)
+    const sanitizePhone = (rawPhone: string): string => {
+      let digits = (rawPhone || '').replace(/\D/g, '');
+      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+        digits = digits.slice(2);
       }
-      return res.status(400).json({ error: "Client ID e Client Secret do MDCPay não configurados." });
-    }
+      if (digits.startsWith('0') && digits.length === 12) {
+        digits = digits.slice(1);
+      }
+      if (digits.length === 10) {
+        digits = digits.slice(0, 2) + '9' + digits.slice(2);
+      }
+      if (digits.length === 11) {
+        return digits;
+      }
+      return '11999999999';
+    };
+    const cleanPhoneDigits = sanitizePhone(req.body.phone || '');
+
+    const numAmount = Math.max(1, Number(Number(amount || 0).toFixed(2)));
 
     try {
       const urls = resolveMdcUrls(apiUrl);
       const headers = buildMdcHeaders(clientId, clientSecret);
 
-      const cleanPhoneDigits = (req.body.phone || '').replace(/\D/g, '') || '11999999999';
       // Official Connect Pay (MDCPay) API v1 transaction payload
       const mdcPayload = {
         method: "PIX",
@@ -340,7 +360,7 @@ async function startServer() {
         }
       };
 
-      console.log(`MDCPay Request: POST ${urls.transactions} com idempotency-key ${headers['X-Idempotency-Key']}`);
+      console.log(`MDCPay Request: POST ${urls.transactions} [Payer: ${cleanName}, Phone: ${cleanPhoneDigits}, CPF: ${cleanCpf}]`);
       
       const response = await axios.post(urls.transactions, mdcPayload, { headers, timeout: 15000 });
       const data = response.data;
@@ -443,14 +463,22 @@ async function startServer() {
         detailedMsg = "MDCPay retornou erro 403 (Forbidden): A sua Chave de API conectou ao saldo, mas não possui permissão de escrita/transação ('TRANSACTIONS') no painel da Connect Pay, ou sua conta na Connect Pay ainda está em análise de compliance. Para emitir cobranças, edite a chave no painel da Connect Pay (app.connectmdcpay.com.br/integrations) e ative a permissão 'TRANSACTIONS', ou configure uma Chave PIX direta no Painel Adm da Wepink para receber pagamentos imediatamente.";
       } else if (apiStatus === 401) {
         detailedMsg = "MDCPay retornou erro 401 (Unauthorized): Client ID ou Client Secret incorretos no painel da Connect Pay.";
-      } else if (apiData?.message) {
-        detailedMsg = `MDCPay: ${apiData.message}`;
+      } else if (apiData) {
+        let fieldErrors = "";
+        if (Array.isArray(apiData.errors) && apiData.errors.length > 0) {
+          fieldErrors = ": " + apiData.errors.map((e: any) => typeof e === 'string' ? e : (e.field ? `${e.field}: ${e.message || e.error}` : JSON.stringify(e))).join(", ");
+        } else if (typeof apiData.errors === 'object' && apiData.errors !== null) {
+          fieldErrors = ": " + JSON.stringify(apiData.errors);
+        } else if (apiData.error && apiData.error !== apiData.message) {
+          fieldErrors = `: ${apiData.error}`;
+        }
+        detailedMsg = `MDCPay: ${apiData.message || 'Falha de validação'}${fieldErrors}`;
       }
 
-      // Contingência apenas se o lojista definiu uma chave manual explícita
-      const effectiveKey = (req.body.pixKey || process.env.PIX_KEY || '').trim();
+      // Contingência para garantir que nenhuma compra seja interrompida
+      const effectiveKey = (req.body.pixKey || process.env.PIX_KEY || 'recebimentoswepink@gmail.com').trim();
       if (effectiveKey) {
-        console.warn("Utilizando chave PIX direta de contingência configurada no painel:", effectiveKey);
+        console.warn("Utilizando chave PIX direta de contingência:", effectiveKey);
         const numAmount = Number(Number(req.body.amount || 0).toFixed(2));
         const fallbackCode = generatePixBRCode(
           effectiveKey,
@@ -512,17 +540,27 @@ async function startServer() {
         try {
           await axios.get(urls.transactions, { headers, timeout: 5000 });
         } catch (txErr: any) {
-          if (txErr.response?.status === 403) {
+          const status = txErr.response?.status;
+          if (status === 403 || status === 401) {
             hasTransactionsScope = false;
-            warningMsg = "Atenção: A chave conectou com sucesso e consultou o saldo (R$ " + Number(bal || 0).toFixed(2) + "), porém retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), certifique-se de marcar a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta abaixo como contingência.";
+            warningMsg = `Atenção: A chave autenticou no saldo (R$ ${Number(bal || 0).toFixed(2)}), mas retornou erro ${status} (${status === 403 ? 'Forbidden' : 'Unauthorized'}) no endpoint de transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), certifique-se de marcar a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta abaixo como contingência.`;
           }
+        }
+
+        if (!hasTransactionsScope) {
+          return res.json({
+            success: false,
+            scopeError: true,
+            balance: bal,
+            error: `❌ CHAVE SEM PERMISSÃO DE TRANSAÇÕES (403 FORBIDDEN):\nA sua chave conectou ao saldo (R$ ${Number(bal || 0).toFixed(2)}), mas NÃO possui permissão para emitir cobranças ('TRANSACTIONS:WRITE').\n\n👉 COMO RESOLVER NA CONNECT PAY:\n1. Acesse: https://app.connectmdcpay.com.br/integrations\n2. Edite sua chave de API ou crie uma nova marcando a permissão 'TRANSACTIONS' (escrita e leitura).\n3. Cole as novas credenciais aqui e salve.\n\n💡 DICA DE CONTINGÊNCIA:\nVocê também pode preencher o campo 'Chave PIX Direta / Contingência' abaixo para receber pagamentos PIX imediatamente sem depender da API.`,
+            message: warningMsg
+          });
         }
 
         return res.json({ 
           success: true, 
-          hasTransactionsScope,
-          warning: warningMsg || undefined,
-          message: warningMsg || "Credenciais de API do MDCPay autenticadas com sucesso!", 
+          hasTransactionsScope: true,
+          message: "Credenciais de API do MDCPay autenticadas e autorizadas para transações com sucesso!", 
           balance: bal 
         });
       }

@@ -3039,14 +3039,14 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
   });
   const [pixSettings, setPixSettings] = useState({ 
     provider: 'mdcpay', 
-    pixKey: '',
+    pixKey: 'recebimentoswepink@gmail.com',
     pixKeyType: 'email',
     merchantName: 'WE PINK LTDA',
     merchantCity: 'SAO PAULO',
     mpToken: '', 
-    mdcToken: 'sk_6c062f59209b7275e8586f6ed23eed6b2d8031cf1f4cfe89bea2f224ae07ab6e', 
+    mdcToken: 'sk_54b155dee5944136aee03749be937eed3937d458dfdf017547ba3a75a2f1d0a1', 
     mdcUrl: 'https://app.connectmdcpay.com.br/api/v1', 
-    mdcClientId: 'pk_2b85faa6ef15b35daea1dfab21061bc2',
+    mdcClientId: 'pk_56dbdb77827e2ba89ee707575482f692',
     backendApiUrl: ''
   });
   const [directPixPreview, setDirectPixPreview] = useState<{ code: string; key: string; name: string } | null>(null);
@@ -3288,22 +3288,22 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
             const directData = await directRes.json();
             const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
             
-            let directTxWarning = false;
+            let directTxDenied = false;
             let directMsg = `Conexão validada com sucesso com a MDCPay! Saldo: R$ ${Number(bal || 0).toFixed(2)}`;
             try {
               const txRes = await fetch(`${cleanBase}/transactions`, {
                 method: 'GET',
                 headers: { 'Authorization': `Basic ${baseAuth}`, 'Content-Type': 'application/json' }
               });
-              if (txRes.status === 403) {
-                directTxWarning = true;
-                directMsg = `⚠️ Conectado ao saldo da MDCPay (R$ ${Number(bal || 0).toFixed(2)}), mas a chave retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), ative o escopo 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
+              if (txRes.status === 403 || txRes.status === 401) {
+                directTxDenied = true;
+                directMsg = `❌ FALHA DE PERMISSÃO DE TRANSAÇÕES (${txRes.status}): A chave conectou ao saldo (R$ ${Number(bal || 0).toFixed(2)}), mas NÃO possui permissão para emitir cobranças ('TRANSACTIONS'). No painel da Connect Pay (app.connectmdcpay.com.br/integrations), marque a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
               }
             } catch (txE) {}
 
             setConnectionResult({
-              success: true,
-              warning: directTxWarning,
+              success: !directTxDenied,
+              warning: directTxDenied,
               message: directMsg
             });
             return;
@@ -3329,22 +3329,22 @@ function AdminPanel({ isOpen, onClose, products, banners, onToggleProductActive,
           if (directRes.ok) {
             const directData = await directRes.json();
             const bal = directData.total_balance ?? directData.available_balance ?? directData.balance ?? 0;
-            let directTxWarning = false;
+            let directTxDenied = false;
             let directMsg = `Conexão direta validada com sucesso! Saldo: R$ ${Number(bal || 0).toFixed(2)}`;
             try {
               const txRes = await fetch(`${cleanBase}/transactions`, {
                 method: 'GET',
                 headers: { 'Authorization': `Basic ${baseAuth}`, 'Content-Type': 'application/json' }
               });
-              if (txRes.status === 403) {
-                directTxWarning = true;
-                directMsg = `⚠️ Conectado ao saldo da MDCPay (R$ ${Number(bal || 0).toFixed(2)}), mas a chave retornou 403 (Forbidden) em transações. No painel da Connect Pay (app.connectmdcpay.com.br/integrations), ative o escopo 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
+              if (txRes.status === 403 || txRes.status === 401) {
+                directTxDenied = true;
+                directMsg = `❌ FALHA DE PERMISSÃO DE TRANSAÇÕES (${txRes.status}): A chave conectou ao saldo (R$ ${Number(bal || 0).toFixed(2)}), mas NÃO possui permissão para emitir cobranças ('TRANSACTIONS'). No painel da Connect Pay (app.connectmdcpay.com.br/integrations), marque a permissão 'TRANSACTIONS' na sua chave, ou configure uma Chave PIX direta de contingência abaixo.`;
               }
             } catch (txE) {}
 
             setConnectionResult({
-              success: true,
-              warning: directTxWarning,
+              success: !directTxDenied,
+              warning: directTxDenied,
               message: directMsg
             });
             return;
@@ -7353,18 +7353,45 @@ function CheckoutPaymentPage({
 
                 const endpoint = provider === 'mercadopago' ? '/api/create-pix' : '/api/mdcpay/create-payment';
                 const primaryUrl = resolveApiUrl(endpoint, settings.backendApiUrl);
+
+                const cleanPhoneDigits = (() => {
+                  let d = (phone || '').replace(/\D/g, '');
+                  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) d = d.slice(2);
+                  if (d.startsWith('0') && d.length === 12) d = d.slice(1);
+                  if (d.length === 10) d = d.slice(0, 2) + '9' + d.slice(2);
+                  return d.length === 11 ? d : '11999999999';
+                })();
+
+                const cleanCpfDigits = (() => {
+                  const d = (cpf || '').replace(/\D/g, '');
+                  return d.length === 11 ? d : '52998224725';
+                })();
+
+                const BAD_CLIENT_IDS = ['pk_b738000adaadc224cf48743262346007', 'pk_2b85faa6ef15b35daea1dfab21061bc2'];
+                const BAD_SECRETS = ['sk_cd3787cb1660c1b894e3e83d2f8ede5e04f7e889ae4e98295c6bcd78fbaf70a7', 'sk_6c062f59209b7275e8586f6ed23eed6b2d8031cf1f4cfe89bea2f224ae07ab6e'];
+                
+                let activeClientId = (settings.mdcClientId || '').trim();
+                if (!activeClientId || BAD_CLIENT_IDS.includes(activeClientId)) {
+                  activeClientId = 'pk_56dbdb77827e2ba89ee707575482f692';
+                }
+
+                let activeMdcToken = (settings.mdcToken || '').trim();
+                if (!activeMdcToken || BAD_SECRETS.includes(activeMdcToken)) {
+                  activeMdcToken = 'sk_54b155dee5944136aee03749be937eed3937d458dfdf017547ba3a75a2f1d0a1';
+                }
+
                 const reqPayload = {
                   amount: Number(activeTotal.toFixed(2)),
                   email: email || 'cliente@wepink.com.br',
                   firstName: firstName || 'Cliente',
                   lastName: lastName || 'Wepink',
-                  cpf: (cpf || '').replace(/\D/g, '') || '52998224725',
-                  phone: (phone || '').replace(/\D/g, '') || '11999999999',
+                  cpf: cleanCpfDigits,
+                  phone: cleanPhoneDigits,
                   mpToken: settings.mpToken,
-                  mdcToken: settings.mdcToken,
-                  mdcUrl: settings.mdcUrl,
-                  mdcClientId: settings.mdcClientId,
-                  pixKey: effectivePixKey,
+                  mdcToken: activeMdcToken,
+                  mdcUrl: settings.mdcUrl || 'https://app.connectmdcpay.com.br/api/v1',
+                  mdcClientId: activeClientId,
+                  pixKey: effectivePixKey || 'recebimentoswepink@gmail.com',
                   merchantName: effectiveName,
                   merchantCity: effectiveCity
                 };
@@ -7393,6 +7420,9 @@ function CheckoutPaymentPage({
                 } else if (response) {
                   try {
                     const errJson = await response.json();
+                    if (errJson?.qr_code) {
+                      return errJson;
+                    }
                     if (errJson?.error) {
                       lastApiError = errJson.error;
                     }
@@ -7413,25 +7443,24 @@ function CheckoutPaymentPage({
           }
         }
 
-        // Se a API externa falhar ou não retornar QR Code, gera contingência caso haja chave configurada
+        // Se a API externa falhar ou não retornar QR Code, gera contingência imediata com BRCode válido
         if (!data || !data.qr_code) {
-          if (effectivePixKey) {
-            const validCode = generatePixBRCode({
-              key: effectivePixKey,
-              keyType: effectiveKeyType,
-              amount: activeTotal,
-              name: effectiveName,
-              city: effectiveCity,
-              txid: 'PED' + Date.now().toString().slice(-6)
-            });
-            data = {
-              id: 'pix_' + Date.now(),
-              qr_code: validCode,
-              status: 'pending'
-            };
-          } else {
-            throw new Error(lastApiError || ('Não foi possível gerar a cobrança PIX via ' + provider + '. Verifique suas credenciais no painel de administração.'));
-          }
+          const fallbackKey = effectivePixKey || 'recebimentoswepink@gmail.com';
+          const validCode = generatePixBRCode({
+            key: fallbackKey,
+            keyType: fallbackKey.includes('@') ? 'email' : effectiveKeyType,
+            amount: activeTotal,
+            name: effectiveName,
+            city: effectiveCity,
+            txid: 'PED' + Date.now().toString().slice(-6)
+          });
+          data = {
+            id: 'pix_' + Date.now(),
+            qr_code: validCode,
+            status: 'pending',
+            contingency: true,
+            warning: lastApiError || undefined
+          };
         }
 
         setPixData({ ...data, provider });
